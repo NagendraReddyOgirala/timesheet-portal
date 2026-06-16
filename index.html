@@ -251,6 +251,13 @@ const L_ENT  = 'TimesheetEntries'; // TimesheetEntries list
 const HR_EMAIL = 'hr@fusionaix.com';
 
 /* ================================================================
+   ▼▼▼  PASTE YOUR CLIENT ID BELOW — from Azure AD app registration
+   ================================================================ */
+const CLIENT_ID    = 'dd40aada-2cb8-4161-a7a3-54a917492adf';  // ← REPLACE THIS with your Client ID
+const TENANT_ID    = 'common';
+const REDIRECT_URI = 'https://nagendrareddyogirala.github.io/timesheet-portal/';
+
+/* ================================================================
    CONSTANTS
    ================================================================ */
 const TODAY   = new Date();
@@ -287,11 +294,16 @@ const timers    = {};      // hkey → debounce timer id
 async function spGET(path) {
   const url = `${SP_SITE}/_api/${path}`;
   const res = await fetch(url, {
-    credentials: 'include',   // Use existing Microsoft login session
     headers: {
-      'Accept': 'application/json;odata=nometadata'
+      'Accept': 'application/json;odata=nometadata',
+      'Authorization': 'Bearer ' + accessToken
     }
   });
+  if (res.status === 401) {
+    sessionStorage.removeItem('sp_token');
+    showSignIn();
+    throw new Error('Session expired. Please sign in again.');
+  }
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(`SharePoint read failed (${res.status}): ${path}\n${txt.slice(0,200)}`);
@@ -308,9 +320,9 @@ async function spPOST(listName, body) {
   const url = `${SP_SITE}/_api/web/lists/getbytitle('${listName}')/items`;
   const res = await fetch(url, {
     method:      'POST',
-    credentials: 'include',
     headers: {
       'Accept':          'application/json;odata=nometadata',
+      'Authorization':   'Bearer ' + accessToken,
       'Content-Type':    'application/json;odata=nometadata',
       'X-RequestDigest': d
     },
@@ -332,9 +344,9 @@ async function spPATCH(listName, itemId, body) {
   const url = `${SP_SITE}/_api/web/lists/getbytitle('${listName}')/items(${itemId})`;
   const res = await fetch(url, {
     method:      'POST',           // SharePoint uses POST with X-HTTP-Method: MERGE
-    credentials: 'include',
     headers: {
       'Accept':          'application/json;odata=nometadata',
+      'Authorization':   'Bearer ' + accessToken,
       'Content-Type':    'application/json;odata=nometadata',
       'X-RequestDigest': d,
       'IF-MATCH':        '*',      // Update regardless of version
@@ -596,7 +608,52 @@ function getWO(){
 /* ================================================================
    INIT — runs once on page load
    ================================================================ */
+/* ================================================================
+   OAUTH2 — Microsoft Login
+   ================================================================ */
+let accessToken = null;
+
+function checkAuth() {
+  const hash = window.location.hash;
+  if (hash.includes('access_token=')) {
+    const p = new URLSearchParams(hash.substring(1));
+    const t = p.get('access_token');
+    if (t) {
+      accessToken = t;
+      sessionStorage.setItem('sp_token', t);
+      window.history.replaceState({}, document.title, window.location.pathname);
+      return true;
+    }
+  }
+  const s = sessionStorage.getItem('sp_token');
+  if (s) { accessToken = s; return true; }
+  return false;
+}
+
+function doLogin() {
+  const url = 'https://login.microsoftonline.com/' + TENANT_ID + '/oauth2/v2.0/authorize' +
+    '?client_id=' + CLIENT_ID +
+    '&response_type=token' +
+    '&redirect_uri=' + encodeURIComponent(REDIRECT_URI) +
+    '&scope=' + encodeURIComponent('https://fusionaix.sharepoint.com/AllSites.Read https://fusionaix.sharepoint.com/AllSites.Write openid profile') +
+    '&response_mode=fragment';
+  window.location.href = url;
+}
+
+function showSignIn() {
+  showLoad(false);
+  document.getElementById('data-scroll').innerHTML =
+    '<div style="padding:60px;text-align:center">' +
+    '<div style="font-size:40px;margin-bottom:16px">🔐</div>' +
+    '<div style="font-size:15px;font-weight:700;margin-bottom:8px">Sign in to Timesheet Portal</div>' +
+    '<div style="font-size:12px;color:#605e5c;margin-bottom:20px">Use your fusionaix Microsoft 365 work account</div>' +
+    '<button onclick="doLogin()" style="padding:10px 28px;background:#0078d4;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Sign in with Microsoft</button>' +
+    '</div>';
+}
+
 async function init(){
+  // Check for OAuth token first
+  if (!checkAuth()) { showSignIn(); return; }
   showLoad(true);
   try {
     // 1. Get current Microsoft user
