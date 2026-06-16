@@ -230,54 +230,66 @@ td.cwt{border-left:2px solid #c8c6c4;border-top:2px solid #c8c6c4;text-align:cen
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
+<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
 <script>
 /* ================================================================
    ╔══════════════════════════════════════════════════════════════╗
-   ║  CONFIGURATION — verified for fusionaix                     ║
+   ║  CONFIGURATION — fusionaix Timesheet Portal                 ║
    ╚══════════════════════════════════════════════════════════════╝ */
 
-// ✅ Your SharePoint site base URL (NOT the page URL — just the site root)
-const SP_SITE = 'https://fusionaix.sharepoint.com/sites/TimesheetPortal';
-
-// ✅ Your SharePoint page URL (where this file is hosted)
-const PAGE_URL = 'https://fusionaix.sharepoint.com/sites/TimesheetPortal/SitePages/Timesheet-Portal.aspx';
-
-// ✅ SharePoint list names — must match EXACTLY (case-sensitive)
-const L_EMP  = 'Employees';        // Employees list
-const L_TS   = 'Timesheets';       // Timesheets list
-const L_ENT  = 'TimesheetEntries'; // TimesheetEntries list
-
-// ✅ HR email — this person sees extra HR features
+const SP_SITE  = 'https://fusionaix.sharepoint.com/sites/TimesheetPortal';
+const L_EMP    = 'Employees';
+const L_TS     = 'Timesheets';
+const L_ENT    = 'TimesheetEntries';
 const HR_EMAIL = 'hr@fusionaix.com';
 
 /* ================================================================
-   ▼▼▼  PASTE YOUR CLIENT ID BELOW — from Azure AD app registration
+   ▼▼▼  PASTE YOUR VALUES HERE (from Azure AD app registration)
    ================================================================ */
-const CLIENT_ID    = 'dd40aada-2cb8-4161-a7a3-54a917492adf';  // ← REPLACE THIS with your Client ID
-const TENANT_ID    = 'e00abbbd-d9e5-4abd-8e66-3c7e88ea3032';
+const CLIENT_ID = 'dd40aada-2cb8-4161-a7a3-54a917492adf'; // ← Azure AD Application (client) ID
+const TENANT_ID = 'e00abbbd-d9e5-4abd-8e66-3c7e88ea3032'; // ← Azure AD Directory (tenant) ID
+/* ================================================================ */
+
 const REDIRECT_URI = 'https://nagendrareddyogirala.github.io/timesheet-portal/';
+const SCOPES = [
+  'https://fusionaix.sharepoint.com/AllSites.Read',
+  'https://fusionaix.sharepoint.com/AllSites.Write',
+  'openid', 'profile', 'email'
+];
 
 /* ================================================================
-   CONSTANTS
+   MSAL — Microsoft Authentication Library
+   Official Microsoft library — handles all login complexity
    ================================================================ */
-const TODAY   = new Date();
-const MONTHS  = ['January','February','March','April','May','June',
-                 'July','August','September','October','November','December'];
-const MS      = ['Jan','Feb','Mar','Apr','May','Jun',
-                 'Jul','Aug','Sep','Oct','Nov','Dec'];
-const DL      = ['S','M','T','W','T','F','S'];
+const msalConfig = {
+  auth: {
+    clientId:    CLIENT_ID,
+    authority:   `https://login.microsoftonline.com/${TENANT_ID}`,
+    redirectUri: REDIRECT_URI
+  },
+  cache: {
+    cacheLocation:       'sessionStorage',
+    storeAuthStateInCookie: false
+  }
+};
 
-/* ================================================================
-   STATE
-   ================================================================ */
-let anchor      = new Date();
-let cView       = 'week';
-let me          = null;    // { email, name, initials, isHR }
-let emps        = [];      // [{ spId, id, name, email }]
-let statuses    = {};      // email → { spItemId, status, totalHours, rejectionReason }
-let digest      = null;    // SharePoint request digest (required for writes)
-const H         = {};      // hkey → { value, spId }
-const timers    = {};      // hkey → debounce timer id
+const msalApp = new msal.PublicClientApplication(msalConfig);
+
+async function getToken() {
+  const accounts = msalApp.getAllAccounts();
+  if (!accounts.length) throw new Error('Not signed in');
+  try {
+    // Try silent token acquisition first (uses cached token)
+    const result = await msalApp.acquireTokenSilent({
+      scopes:  SCOPES,
+      account: accounts[0]
+    });
+    return result.accessToken;
+  } catch(e) {
+    // Silent failed — redirect to login
+    await msalApp.acquireTokenRedirect({ scopes: SCOPES, account: accounts[0] });
+  }
+}
 
 /* ================================================================
    ── SHAREPOINT REST API LAYER ──
@@ -294,16 +306,11 @@ const timers    = {};      // hkey → debounce timer id
 async function spGET(path) {
   const url = `${SP_SITE}/_api/${path}`;
   const res = await fetch(url, {
+    credentials: 'include',   // Use existing Microsoft login session
     headers: {
-      'Accept': 'application/json;odata=nometadata',
-      'Authorization': 'Bearer ' + accessToken
+      'Accept': 'application/json;odata=nometadata'
     }
   });
-  if (res.status === 401) {
-    sessionStorage.removeItem('sp_token');
-    showSignIn();
-    throw new Error('Session expired. Please sign in again.');
-  }
   if (!res.ok) {
     const txt = await res.text();
     throw new Error(`SharePoint read failed (${res.status}): ${path}\n${txt.slice(0,200)}`);
@@ -319,11 +326,11 @@ async function spPOST(listName, body) {
   const d   = digest || await getDigest();
   const url = `${SP_SITE}/_api/web/lists/getbytitle('${listName}')/items`;
   const res = await fetch(url, {
-    method:      'POST',
+    method:  'POST',
     headers: {
       'Accept':          'application/json;odata=nometadata',
-      'Authorization':   'Bearer ' + accessToken,
       'Content-Type':    'application/json;odata=nometadata',
+      'Authorization':   'Bearer ' + await getToken(),
       'X-RequestDigest': d
     },
     body: JSON.stringify(body)
@@ -344,13 +351,14 @@ async function spPATCH(listName, itemId, body) {
   const url = `${SP_SITE}/_api/web/lists/getbytitle('${listName}')/items(${itemId})`;
   const res = await fetch(url, {
     method:      'POST',           // SharePoint uses POST with X-HTTP-Method: MERGE
+    credentials: 'include',
     headers: {
       'Accept':          'application/json;odata=nometadata',
-      'Authorization':   'Bearer ' + accessToken,
       'Content-Type':    'application/json;odata=nometadata',
+      'Authorization':   'Bearer ' + await getToken(),
       'X-RequestDigest': d,
-      'IF-MATCH':        '*',      // Update regardless of version
-      'X-HTTP-Method':   'MERGE'   // Tells SP this is an update not a create
+      'IF-MATCH':        '*',
+      'X-HTTP-Method':   'MERGE'
     },
     body: JSON.stringify(body)
   });
@@ -366,10 +374,10 @@ async function spPATCH(listName, itemId, body) {
  * Automatically refreshed every 25 minutes before expiry
  */
 async function getDigest() {
+  const token = await getToken();
   const res = await fetch(`${SP_SITE}/_api/contextinfo`, {
-    method:      'POST',
-    credentials: 'include',
-    headers: { 'Accept': 'application/json;odata=nometadata' }
+    method:  'POST',
+    headers: { 'Accept': 'application/json;odata=nometadata', 'Authorization': 'Bearer ' + token }
   });
   if (!res.ok) throw new Error('Cannot connect to SharePoint. Are you logged in with your Microsoft account?');
   const data = await res.json();
@@ -608,55 +616,21 @@ function getWO(){
 /* ================================================================
    INIT — runs once on page load
    ================================================================ */
-/* ================================================================
-   OAUTH2 — Microsoft Login
-   ================================================================ */
-let accessToken = null;
-
-function checkAuth() {
-  const hash = window.location.hash;
-  if (hash.includes('access_token=')) {
-    const p = new URLSearchParams(hash.substring(1));
-    const t = p.get('access_token');
-    if (t) {
-      accessToken = t;
-      sessionStorage.setItem('sp_token', t);
-      window.history.replaceState({}, document.title, window.location.pathname);
-      return true;
-    }
-  }
-  const s = sessionStorage.getItem('sp_token');
-  if (s) { accessToken = s; return true; }
-  return false;
-}
-
-function doLogin() {
-  const url = 'https://login.microsoftonline.com/' + TENANT_ID + '/oauth2/v2.0/authorize' +
-    '?client_id=' + CLIENT_ID +
-    '&response_type=token' +
-    '&redirect_uri=' + encodeURIComponent(REDIRECT_URI) +
-    '&scope=' + encodeURIComponent('https://fusionaix.sharepoint.com/AllSites.Read https://fusionaix.sharepoint.com/AllSites.Write openid profile') +
-    '&response_mode=fragment';
-  window.location.href = url;
-}
-
-function showSignIn() {
-  showLoad(false);
-  document.getElementById('data-scroll').innerHTML =
-    '<div style="padding:60px;text-align:center">' +
-    '<div style="font-size:40px;margin-bottom:16px">🔐</div>' +
-    '<div style="font-size:15px;font-weight:700;margin-bottom:8px">Sign in to Timesheet Portal</div>' +
-    '<div style="font-size:12px;color:#605e5c;margin-bottom:20px">Use your fusionaix Microsoft 365 work account</div>' +
-    '<button onclick="doLogin()" style="padding:10px 28px;background:#0078d4;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer">Sign in with Microsoft</button>' +
-    '</div>';
-}
-
 async function init(){
-  // Check for OAuth token first
-  if (!checkAuth()) { showSignIn(); return; }
-  showLoad(true);
+  showLoad(true, 'Signing in...');
   try {
-    // 1. Get current Microsoft user
+    // Handle redirect response from Microsoft login
+    await msalApp.handleRedirectPromise();
+    const accounts = msalApp.getAllAccounts();
+    if (!accounts.length) {
+      // Not logged in — redirect to Microsoft login
+      await msalApp.loginRedirect({
+        scopes: SCOPES,
+        prompt: 'select_account'
+      });
+      return; // Page will redirect
+    }
+    // Already logged in — get user details
     me = await loadMe();
     document.getElementById('ua').textContent         = me.initials;
     document.getElementById('user-label').textContent = me.name + (me.isHR?' (HR)':'');
@@ -673,9 +647,8 @@ async function init(){
 
   } catch(e){
     console.error('Init error:', e);
-    showErr('Cannot connect to SharePoint. ' + e.message +
-      ' — Make sure you are logged in with your Microsoft 365 account ('+
-      'fusionaix.sharepoint.com).');
+    console.error(e);
+    showErr('Error: ' + e.message);
     showLoad(false);
   }
 }
