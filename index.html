@@ -3,6 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- MSAL — Microsoft Authentication Library (must load before any script) -->
+<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
 <title>Timesheet Portal — Fusionaix</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -230,7 +232,6 @@ td.cwt{border-left:2px solid #c8c6c4;border-top:2px solid #c8c6c4;text-align:cen
 <!-- TOAST -->
 <div class="toast" id="toast"></div>
 
-<script src="https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js"></script>
 <script>
 /* ================================================================
    ╔══════════════════════════════════════════════════════════════╗
@@ -876,7 +877,12 @@ function showErr(msg){
 }
 
 /* KICK OFF */
-init();
+// Wait for DOM and MSAL to be fully ready before starting
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", init);
+} else {
+  init();
+}
 </script>
 </body>
 </html>
