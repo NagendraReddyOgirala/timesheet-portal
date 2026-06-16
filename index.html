@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<!-- Build: 20260616-120917 -->
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Timesheet Portal — Fusionaix</title>
+
+<!-- ✅ MSAL — loaded dynamically to ensure it is ready before app code runs -->
+<script>
+(function() {
+  var script = document.createElement('script');
+  script.src = 'https://alcdn.msauth.net/browser/2.38.3/js/msal-browser.min.js';
+  script.async = false; // synchronous — must load before anything else
+  script.onload  = function() { window.__msalReady = true; console.log('[MSAL] Loaded OK'); };
+  script.onerror = function() {
+    // Try fallback CDN
+    var fb = document.createElement('script');
+    fb.src = 'https://cdn.jsdelivr.net/npm/@azure/msal-browser@2.38.3/lib/msal-browser.min.js';
+    fb.async = false;
+    fb.onload  = function() { window.__msalReady = true; console.log('[MSAL] Loaded from fallback CDN'); };
+    fb.onerror = function() { window.__msalReady = false; console.error('[MSAL] Both CDNs failed'); };
+    document.head.appendChild(fb);
+  };
+  document.head.appendChild(script);
+})();
+</script>
+
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button{opacity:1}
+body{font-family:'Segoe UI',system-ui,sans-serif;font-size:13px;color:#323130;background:#f3f2f1;min-height:100vh;padding:10px}
+#app{border:1px solid #edebe9;border-radius:10px;overflow:hidden;background:#fff;max-width:100%;position:relative;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+#loader{position:absolute;inset:0;background:rgba(255,255,255,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:50;gap:14px;border-radius:10px}
+#loader.hidden{display:none}
+.spinner{width:40px;height:40px;border:3px solid #edebe9;border-top-color:#6264a7;border-radius:50%;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+#loader-msg{font-size:12px;color:#605e5c;font-weight:500;text-align:center;padding:0 20px}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:11px 18px;background:#1b1a19;gap:10px;flex-wrap:wrap}
+.tb-left{display:flex;align-items:center;gap:10px}
+.tb-title{font-size:14px;font-weight:700;color:#fff}
+.tb-sub{font-size:10px;color:rgba(255,255,255,.4)}
+.tb-right{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.user-chip{display:flex;align-items:center;gap:7px;padding:5px 12px;border-radius:20px;background:rgba(255,255,255,.1);font-size:11px;color:#c8c6c4;border:1px solid rgba(255,255,255,.08)}
+.uav{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;background:#6264a7;color:#fff;flex-shrink:0}
+.view-sw{display:flex;border:1px solid rgba(255,255,255,.2);border-radius:6px;overflow:hidden}
+.vsw{padding:5px 14px;font-size:11px;font-weight:600;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,.5)}
+.vsw.on{background:rgba(255,255,255,.18);color:#fff}
+.vsw:hover:not(.on){background:rgba(255,255,255,.08);color:rgba(255,255,255,.8)}
+.btn-submit{padding:6px 16px;border-radius:6px;border:none;background:#6264a7;color:#fff;font-size:12px;font-weight:600;cursor:pointer}
+.btn-submit:disabled{opacity:.35;cursor:not-allowed}
+.btn-submit:hover:not(:disabled){background:#4f52a3}
+.navrow{display:flex;align-items:center;gap:8px;padding:9px 18px;border-bottom:1px solid #edebe9;flex-wrap:wrap;background:#fff}
+.nav-btn{width:28px;height:28px;border-radius:4px;border:1px solid #edebe9;background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center;color:#605e5c;font-size:16px}
+.nav-btn:hover{background:#f3f2f1}
+.today-btn{padding:5px 12px;border-radius:4px;border:1px solid #edebe9;background:#fff;font-size:11px;cursor:pointer;color:#323130;font-weight:600}
+.today-btn:hover{background:#f3f2f1}
+.range-lbl{font-size:13px;font-weight:700;color:#323130;flex:1}
+.my-badge{display:inline-flex;align-items:center;gap:4px;font-size:10px;padding:3px 9px;border-radius:20px;font-weight:700}
+.bd{background:#f3f2f1;color:#605e5c}
+.bs{background:#dce6f7;color:#0f3d8c}
+.ba{background:#dff6dd;color:#107c10}
+.br{background:#fde7e9;color:#a4262c}
+.err-banner{display:none;padding:9px 18px;background:#fde7e9;color:#a4262c;font-size:12px;border-bottom:1px solid #f1a5a8;align-items:flex-start;gap:8px;font-weight:500;line-height:1.5}
+.err-banner.show{display:flex}
+.legend{display:flex;gap:16px;padding:7px 18px;border-bottom:1px solid #edebe9;background:#faf9f8;flex-wrap:wrap}
+.leg{display:flex;align-items:center;gap:5px;font-size:11px;color:#605e5c}
+.ldot{width:11px;height:11px;border-radius:2px;flex-shrink:0}
+.grid-outer{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.grid-inner{display:flex;min-width:max-content}
+.frozen{flex-shrink:0;position:sticky;left:0;z-index:10;background:#1b1a19}
+.fh-top{height:32px;background:#1b1a19}
+.fh-mid{height:36px;background:#1b1a19;display:flex;align-items:center;padding:0 18px}
+.col-n{font-size:11px;font-weight:700;color:rgba(255,255,255,.8);width:145px}
+.col-i{font-size:11px;font-weight:700;color:rgba(255,255,255,.8);width:72px}
+.fh-date{height:28px;background:#1b1a19}
+.femp{height:56px;display:flex;align-items:center;padding:0 18px;background:#fff;border-bottom:1px solid #edebe9;transition:background .1s}
+.femp:hover{background:#f3f2f1}
+.femp.mine{background:#f0effe}
+.femp.mine:hover{background:#e3e0fd}
+.femp-name{font-size:12px;font-weight:500;width:145px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.femp-id{font-size:10px;color:#8a8886;width:72px;font-family:'Courier New',monospace}
+.ftotal{height:44px;background:#f3f2f1;display:flex;align-items:center;padding:0 18px;border-top:2px solid #c8c6c4}
+.ftotal-lbl{font-size:11px;font-weight:700;color:#605e5c}
+.data-scroll{overflow-x:auto;flex:1}
+table.ts{border-collapse:collapse;table-layout:fixed}
+.thw{background:#f3f2f1;text-align:center;padding:6px 0;font-size:11px;font-weight:700;color:#323130;border-left:2px solid #c8c6c4;border-bottom:1px solid #edebe9}
+.thw span{font-size:10px;font-weight:400;color:#8a8886;margin-left:4px}
+.thd{background:#f3f2f1;text-align:center;padding:6px 0;font-size:11px;font-weight:600;color:#605e5c;border-left:1px solid #edebe9;border-bottom:1px solid #edebe9;width:82px}
+.thd.we{background:#faf9f8;color:#a19f9d}
+.thdt{background:#f3f2f1;text-align:center;padding:3px 0;font-size:10px;color:#a19f9d;border-left:1px solid #edebe9;border-bottom:1px solid #edebe9}
+.thdt.we{background:#faf9f8}
+.thdt.tdh{color:#0078d4;font-weight:700}
+.thwt{background:#1b1a19;text-align:center;padding:6px 3px;font-size:11px;font-weight:700;color:rgba(255,255,255,.85);border-left:2px solid #444;width:72px;border-bottom:1px solid #333}
+.thst{background:#1b1a19;text-align:center;padding:6px;font-size:11px;font-weight:700;color:rgba(255,255,255,.85);border-left:1px solid #444;width:98px;border-bottom:1px solid #333}
+td.dc{width:82px;height:56px;border-left:1px solid #edebe9;border-bottom:1px solid #edebe9;padding:0;text-align:center;background:#fff;vertical-align:middle}
+td.dc.we{background:#faf9f8}
+td.dc.tdc{background:#eff6fc}
+td.dc.mine{background:#f5f4ff}
+td.dc.mine.we{background:#ede8ff}
+td.dc input{width:100%;height:100%;border:none;background:transparent;text-align:center;font-size:22px;font-weight:300;color:#323130;outline:none;padding:0;font-family:'Segoe UI',sans-serif;cursor:not-allowed;transition:background .2s}
+td.dc.mine input{cursor:text;color:#4f52a3;font-weight:400}
+td.dc.mine input:focus{background:#c7c4f7;color:#252368}
+td.dc.we input{color:#d2d0ce;font-size:16px}
+td.wt{width:72px;height:56px;border-left:2px solid #c8c6c4;border-bottom:1px solid #edebe9;text-align:center;font-size:20px;font-weight:600;background:#f3f2f1;vertical-align:middle;color:#323130}
+td.wt.mine{background:#ede8ff;color:#4f52a3;font-size:22px;font-weight:700}
+td.st{width:98px;height:56px;border-left:1px solid #edebe9;border-bottom:1px solid #edebe9;text-align:center;vertical-align:middle;background:#fff}
+td.ct{height:44px;border-left:1px solid #edebe9;border-top:2px solid #c8c6c4;text-align:center;font-size:12px;font-weight:700;background:#f3f2f1;vertical-align:middle;color:#605e5c}
+td.ct.we{background:#faf9f8;color:#a19f9d}
+td.cwt{border-left:2px solid #c8c6c4;border-top:2px solid #c8c6c4;text-align:center;font-size:13px;font-weight:700;background:#f3f2f1;vertical-align:middle;color:#323130}
+.sumbar{display:flex;gap:8px;padding:10px 18px;border-top:1px solid #edebe9;background:#faf9f8;flex-wrap:wrap}
+.si{background:#fff;border:1px solid #edebe9;border-radius:6px;padding:8px 14px;flex:1;min-width:100px}
+.si-l{font-size:10px;color:#8a8886;margin-bottom:3px;text-transform:uppercase;letter-spacing:.04em;font-weight:500}
+.si-v{font-size:16px;font-weight:700;color:#323130}
+.modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:100;align-items:center;justify-content:center;padding:20px}
+.modal-bg.show{display:flex}
+.modal{background:#fff;border-radius:10px;padding:26px;width:100%;max-width:420px;box-shadow:0 12px 40px rgba(0,0,0,.22)}
+.modal-title{font-size:16px;font-weight:700;margin-bottom:6px;color:#323130}
+.modal-sub{font-size:12px;color:#605e5c;margin-bottom:16px;line-height:1.65}
+.modal-det{background:#f3f2f1;border-radius:6px;padding:12px 14px;margin-bottom:14px}
+.mdr{display:flex;justify-content:space-between;font-size:12px;padding:4px 0;border-bottom:1px solid #edebe9}
+.mdr:last-child{border-bottom:none}
+.mdr-l{color:#8a8886}.mdr-v{font-weight:700;color:#323130}
+.modal-btns{display:flex;gap:8px;margin-top:4px}
+.mbtn{flex:1;padding:9px;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer}
+.mbtn-cancel{border:1px solid #edebe9;background:#fff;color:#323130}
+.mbtn-cancel:hover{background:#f3f2f1}
+.mbtn-ok{border:none;background:#6264a7;color:#fff}
+.mbtn-ok:hover{background:#4f52a3}
+.toast{position:fixed;bottom:20px;right:20px;padding:11px 18px;border-radius:8px;font-size:12px;font-weight:600;opacity:0;transition:opacity .3s;pointer-events:none;z-index:200;box-shadow:0 4px 16px rgba(0,0,0,.18);max-width:340px}
+.toast.show{opacity:1}
+.t-ok{background:#dff6dd;color:#107c10;border:1px solid #a8d5a2}
+.t-err{background:#fde7e9;color:#a4262c;border:1px solid #f0aaae}
+.t-info{background:#dce6f7;color:#0f3d8c;border:1px solid #9ab3e0}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="loader">
+    <div class="spinner"></div>
+    <div id="loader-msg">Signing in...</div>
+  </div>
+  <div class="topbar">
+    <div class="tb-left">
+      <span style="font-size:20px">⏱</span>
+      <div><div class="tb-title">Timesheet Portal</div><div class="tb-sub">fusionaix.sharepoint.com</div></div>
+    </div>
+    <div class="tb-right">
+      <div class="user-chip"><div class="uav" id="ua">...</div><span id="user-label">Loading...</span></div>
+      <div class="view-sw">
+        <button class="vsw on" id="vsw-week" onclick="setView('week')">Week</button>
+        <button class="vsw" id="vsw-month" onclick="setView('month')">Month</button>
+      </div>
+      <button class="btn-submit" id="submit-btn" onclick="openSubmit()" disabled>▶ Submit</button>
+    </div>
+  </div>
+  <div class="navrow">
+    <button class="today-btn" onclick="goToday()">Today</button>
+    <button class="nav-btn" onclick="nav(-1)">‹</button>
+    <button class="nav-btn" onclick="nav(1)">›</button>
+    <span class="range-lbl" id="range-lbl"></span>
+    <span class="my-badge bd" id="my-badge">✏ Draft</span>
+  </div>
+  <div class="err-banner" id="err-banner">
+    <span>⚠</span><span id="err-msg" style="flex:1"></span>
+    <button onclick="document.getElementById('err-banner').classList.remove('show')" style="border:none;background:transparent;cursor:pointer;color:#a4262c;font-size:16px">✕</button>
+  </div>
+  <div class="legend">
+    <div class="leg"><div class="ldot" style="background:#f0effe;border:1px solid #a39ff5"></div>Your row (editable)</div>
+    <div class="leg"><div class="ldot" style="background:#f3f2f1;border:1px solid #edebe9"></div>Others (read-only)</div>
+    <div class="leg"><div class="ldot" style="background:#faf9f8;border:1px solid #edebe9"></div>Weekend</div>
+    <div class="leg"><div class="ldot" style="background:#eff6fc;border:1px solid #9dc8e8"></div>Today</div>
+  </div>
+  <div class="grid-outer">
+    <div class="grid-inner">
+      <div class="frozen" id="frozen-col"></div>
+      <div class="data-scroll" id="data-scroll"><div style="padding:40px;text-align:center;color:#8a8886">Loading...</div></div>
+    </div>
+  </div>
+  <div class="sumbar">
+    <div class="si"><div class="si-l">My week total</div><div class="si-v" id="s-mine" style="color:#4f52a3">—</div></div>
+    <div class="si"><div class="si-l">Team total</div><div class="si-v" id="s-team">—</div></div>
+    <div class="si"><div class="si-l">My status</div><div class="si-v" id="s-status" style="font-size:12px;padding-top:3px">—</div></div>
+    <div class="si"><div class="si-l">Submitted / Total</div><div class="si-v" id="s-ratio">—</div></div>
+  </div>
+</div>
+<div class="modal-bg" id="modal-bg">
+  <div class="modal">
+    <div class="modal-title" id="modal-title"></div>
+    <div class="modal-sub" id="modal-sub"></div>
+    <div class="modal-det" id="modal-det"></div>
+    <div class="modal-btns" id="modal-btns"></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ================================================================
+   CONFIGURATION — fusionaix Timesheet Portal
+   ================================================================ */
+const SP_SITE  = 'https://fusionaix.sharepoint.com/sites/TimesheetPortal';
+const L_EMP    = 'Employees';
+const L_TS     = 'Timesheets';
+const L_ENT    = 'TimesheetEntries';
+const HR_EMAIL = 'hr@fusionaix.com';
+const CLIENT_ID = 'dd40aada-2cb8-4161-a7a3-54a917492adf';
+const TENANT_ID = 'e00abbbd-d9e5-4abd-8e66-3c7e88ea3032';
+const REDIRECT_URI = 'https://nagendrareddyogirala.github.io/timesheet-portal/';
+const SCOPES = [
+  'https://fusionaix.sharepoint.com/AllSites.Read',
+  'https://fusionaix.sharepoint.com/AllSites.Write'
+];
+
+/* ================================================================
+   MSAL SETUP — runs after msal-browser.min.js is loaded
+   ================================================================ */
+// msalConfig built inside startWhenReady() to avoid msal.LogLevel at parse time
+let msalConfig;
+
+let msalApp; // initialized in startWhenReady() after MSAL loads
+
+async function getToken() {
+  const accounts = msalApp.getAllAccounts();
+  if (!accounts.length) throw new Error('No logged-in account found');
+  try {
+    const result = await msalApp.acquireTokenSilent({ scopes: SCOPES, account: accounts[0] });
+    return result.accessToken;
+  } catch(e) {
+    console.warn('[App] Silent token failed, trying popup:', e.message);
+    try {
+      const result = await msalApp.acquireTokenPopup({ scopes: SCOPES, account: accounts[0] });
+      return result.accessToken;
+    } catch(popupErr) {
+      throw new Error('Could not get token: ' + popupErr.message);
+    }
+  }
+}
+
+/* ================================================================
+   SHAREPOINT REST API
+   ================================================================ */
+async function spGET(path) {
+  const token = await getToken();
+  const res   = await fetch(SP_SITE + '/_api/' + path, {
+    headers: {
+      'Accept':        'application/json;odata=nometadata',
+      'Authorization': 'Bearer ' + token
+    }
+  });
+  console.log('SP GET', path, '→', res.status);
+  if (res.status === 401) throw new Error('Unauthorized — check API permissions in Azure AD');
+  if (res.status === 403) throw new Error('Forbidden (403) — admin consent may be missing');
+  if (!res.ok) { const t = await res.text(); throw new Error('SP error ' + res.status + ': ' + t.slice(0,150)); }
+  return res.json();
+}
+
+async function spPOST(listName, body) {
+  const token  = await getToken();
+  const digest = await getDigest(token);
+  const res    = await fetch(SP_SITE + "/_api/web/lists/getbytitle('" + listName + "')/items", {
+    method: 'POST',
+    headers: {
+      'Accept':          'application/json;odata=nometadata',
+      'Content-Type':    'application/json;odata=nometadata',
+      'Authorization':   'Bearer ' + token,
+      'X-RequestDigest': digest
+    },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) { const t = await res.text(); throw new Error('SP POST error ' + res.status + ': ' + t.slice(0,150)); }
+  return res.json();
+}
+
+async function spPATCH(listName, itemId, body) {
+  const token  = await getToken();
+  const digest = await getDigest(token);
+  const res    = await fetch(SP_SITE + "/_api/web/lists/getbytitle('" + listName + "')/items(" + itemId + ')', {
+    method: 'POST',
+    headers: {
+      'Accept':          'application/json;odata=nometadata',
+      'Content-Type':    'application/json;odata=nometadata',
+      'Authorization':   'Bearer ' + token,
+      'X-RequestDigest': digest,
+      'IF-MATCH':        '*',
+      'X-HTTP-Method':   'MERGE'
+    },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok && res.status !== 204) { const t = await res.text(); throw new Error('SP PATCH error ' + res.status + ': ' + t.slice(0,150)); }
+  return true;
+}
+
+let _digest = null;
+async function getDigest(token) {
+  if (_digest) return _digest;
+  const res = await fetch(SP_SITE + '/_api/contextinfo', {
+    method: 'POST',
+    headers: { 'Accept': 'application/json;odata=nometadata', 'Authorization': 'Bearer ' + token }
+  });
+  const d = await res.json();
+  _digest = d.FormDigestValue;
+  setTimeout(() => { _digest = null; }, 25 * 60 * 1000);
+  return _digest;
+}
+
+/* ================================================================
+   STATE
+   ================================================================ */
+const TODAY  = new Date();
+const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const MS     = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const DL     = ['S','M','T','W','T','F','S'];
+let anchor   = new Date();
+let cView    = 'week';
+let me       = null;
+let emps     = [];
+let statuses = {};
+const H      = {};
+const timers = {};
+
+/* ================================================================
+   DATA LOADING
+   ================================================================ */
+async function loadMe() {
+  setMsg('Getting your account...');
+  const accounts = msalApp.getAllAccounts();
+  if (accounts.length > 0) {
+    const a     = accounts[0];
+    const email = (a.username || '').toLowerCase().trim();
+    const name  = a.name || a.username || 'Unknown';
+    const parts = name.split(' ');
+    return { email, name, initials: ((parts[0]?.[0]||'')+(parts[parts.length-1]?.[0]||'')).toUpperCase(), isHR: email===HR_EMAIL.toLowerCase() };
+  }
+  const d     = await spGET('web/currentuser');
+  const email = (d.Email||'').toLowerCase().trim();
+  const name  = d.Title||'Unknown';
+  const parts = name.split(' ');
+  return { email, name, initials: ((parts[0]?.[0]||'')+(parts[parts.length-1]?.[0]||'')).toUpperCase(), isHR: email===HR_EMAIL.toLowerCase() };
+}
+
+async function loadEmps() {
+  setMsg('Loading employees...');
+  const d = await spGET("web/lists/getbytitle('" + L_EMP + "')/items?$filter=IsActive eq 1&$select=ID,FullName,EmployeeEmail,EmpID,Department&$orderby=FullName asc&$top=500");
+  return (d.value||[]).map(e => ({ spId:e.ID, id:e.EmpID||('EMP'+String(e.ID).padStart(3,'0')), name:e.FullName||'Unknown', email:(e.EmployeeEmail||'').toLowerCase().trim(), dept:e.Department||'' }));
+}
+
+async function loadStatuses(weekStart) {
+  setMsg('Loading timesheet status...');
+  const iso = toISO(weekStart);
+  const d   = await spGET("web/lists/getbytitle('" + L_TS + "')/items?$filter=WeekStartDate eq datetime'" + iso + "T00:00:00Z'&$select=ID,EmployeeEmail,Status,TotalHours,RejectionReason&$top=500");
+  const map = {};
+  (d.value||[]).forEach(r => { map[(r.EmployeeEmail||'').toLowerCase().trim()] = { spItemId:r.ID, status:r.Status||'Draft', totalHours:r.TotalHours||0, rejectionReason:r.RejectionReason||'' }; });
+  return map;
+}
+
+async function loadEntries(ws, we) {
+  setMsg('Loading hours...');
+  const d = await spGET("web/lists/getbytitle('" + L_ENT + "')/items?$filter=EntryDate ge datetime'" + toISO(ws) + "T00:00:00Z' and EntryDate le datetime'" + toISO(we) + "T23:59:59Z'&$select=ID,Email,EntryDate,Hours&$top=5000");
+  (d.value||[]).forEach(r => {
+    const ei = emps.findIndex(x => x.email === (r.EmployeeEmail||'').toLowerCase().trim());
+    if (ei < 0) return;
+    const dt = new Date(r.EntryDate);
+    H[hk(ei,dt)] = { value: r.Hours||0, spId: r.ID };
+  });
+}
+
+async function saveEntry(ei, date, hours) {
+  const k   = hk(ei, date);
+  const emp = emps[ei];
+  const ex  = H[k];
+  const dISO = toISO(date) + 'T00:00:00Z';
+  if (ex && ex.spId) {
+    await spPATCH(L_ENT, ex.spId, { Hours: hours });
+    H[k] = { value: hours, spId: ex.spId };
+  } else {
+    const r = await spPOST(L_ENT, { EmployeeEmail: emp.email, EmployeeName: emp.name, EmpID: emp.id, EntryDate: dISO, DayOfWeek: DL[date.getDay()], Hours: hours });
+    H[k] = { value: hours, spId: r.ID };
+  }
+}
+
+async function submitTS(weekStart, totalHours) {
+  const iso  = toISO(weekStart) + 'T00:00:00Z';
+  const em   = me.email;
+  const ex   = statuses[em];
+  const now  = new Date().toISOString();
+  const empR = emps.find(x => x.email === em);
+  if (ex && ex.spItemId) {
+    await spPATCH(L_TS, ex.spItemId, { Status: 'Submitted', TotalHours: totalHours, SubmittedOn: now });
+    statuses[em] = { ...ex, status: 'Submitted', totalHours };
+  } else {
+    const r = await spPOST(L_TS, { EmployeeEmail: em, EmployeeName: me.name, EmpID: empR?.id||'', WeekStartDate: iso, Status: 'Submitted', TotalHours: totalHours, SubmittedOn: now });
+    statuses[em] = { spItemId: r.ID, status: 'Submitted', totalHours };
+  }
+}
+
+/* ================================================================
+   HELPERS
+   ================================================================ */
+function hk(ei,d){return ei+'_'+d.getFullYear()+'_'+d.getMonth()+'_'+d.getDate();}
+function getH(ei,d){const v=H[hk(ei,d)];return v?(typeof v==='object'?v.value:v):0;}
+function setHL(ei,d,v){const k=hk(ei,d);H[k]={value:v,spId:H[k]?.spId||null};}
+function toISO(d){return d.toISOString().split('T')[0];}
+function addD(d,n){const x=new Date(d);x.setDate(x.getDate()+n);return x;}
+function sameD(a,b){return a.toDateString()===b.toDateString();}
+function isWE(d){return d.getDay()===0||d.getDay()===6;}
+function getMon(d){const x=new Date(d);const dw=x.getDay();x.setDate(x.getDate()-(dw===0?6:dw-1));x.setHours(0,0,0,0);return x;}
+function getWksInMonth(y,m){const t=new Date(y,m+1,0).getDate();const wks=[];let wk=[];for(let i=1;i<=t;i++){const dt=new Date(y,m,i);wk.push(dt);if(dt.getDay()===6||i===t){wks.push(wk);wk=[];}}return wks;}
+function getStatus(ei){return statuses[emps[ei]?.email]?.status||'Draft';}
+function myStatus(){return statuses[me?.email]?.status||'Draft';}
+function myIdx(){return emps.findIndex(e=>e.email===me?.email);}
+function bCls(s){return{Draft:'bd',Submitted:'bs',Approved:'ba',Rejected:'br'}[s]||'bd';}
+function bTxt(s){return{Draft:'✏ Draft',Submitted:'⏳ Submitted',Approved:'✓ Approved',Rejected:'✗ Rejected'}[s]||'✏ Draft';}
+function bHTML(s){return '<span class="my-badge '+bCls(s)+'">'+bTxt(s)+'</span>';}
+
+/* ================================================================
+   VIEW CONTROL
+   ================================================================ */
+function setView(v){cView=v;document.getElementById('vsw-week').classList.toggle('on',v==='week');document.getElementById('vsw-month').classList.toggle('on',v==='month');loadPeriod();}
+function nav(d){if(cView==='week')anchor=addD(anchor,d*7);else anchor=new Date(anchor.getFullYear(),anchor.getMonth()+d,1);loadPeriod();}
+function goToday(){anchor=new Date(TODAY);loadPeriod();}
+function getWO(){
+  if(cView==='week'){const days=Array.from({length:7},(_,i)=>addD(getMon(anchor),i));return [{label:'Week',days,range:days[0].getDate()+'–'+days[6].getDate()+' '+MS[days[0].getMonth()]}];}
+  const y=anchor.getFullYear(),m=anchor.getMonth();
+  return getWksInMonth(y,m).map((wk,i)=>({label:'Week '+(i+1),days:wk,range:wk[0].getDate()+'–'+wk[wk.length-1].getDate()+' '+MS[wk[0].getMonth()]}));
+}
+
+/* ================================================================
+   INIT
+   ================================================================ */
+async function init() {
+  showLoad(true, 'Signing in...');
+  try {
+    // Handle any pending redirect (cleanup)
+    try { await msalApp.handleRedirectPromise(); } catch(e) { console.warn('handleRedirect:', e.message); }
+
+    const accounts = msalApp.getAllAccounts();
+    console.log('[App] Accounts found:', accounts.length);
+
+    if (!accounts.length) {
+      // Not logged in — go to Microsoft login
+      setMsg('Redirecting to Microsoft login...');
+      console.log('[App] Opening Microsoft login popup...');
+      try {
+        const result = await msalApp.loginPopup({
+          scopes: SCOPES,
+          prompt: 'select_account'
+        });
+        console.log('[App] Popup login success:', result.account.username);
+        // After successful popup login, reload to reinitialize
+        window.location.reload();
+      } catch(popupError) {
+        console.error('[App] Popup login failed:', popupError.message);
+        showErr('Login failed: ' + popupError.message);
+        showLoad(false);
+      }
+      return;
+    }
+
+    // Logged in — load data
+    me = await loadMe();
+    document.getElementById('ua').textContent         = me.initials;
+    document.getElementById('user-label').textContent = me.name + (me.isHR ? ' (HR)' : '');
+
+    emps = await loadEmps();
+    if (!emps.length) {
+      showErr('No employees found. Please add employees to the Employees list in SharePoint first.');
+      showLoad(false);
+      return;
+    }
+
+    await loadPeriod();
+
+  } catch(e) {
+    console.error('Init error:', e);
+    let msg = e.message || 'Unknown error';
+    if (msg.includes('401') || msg.includes('Unauthorized')) {
+      msg = '401 Unauthorized — make sure API permissions (AllSites.Read, AllSites.Write) are granted and admin consent is given in Azure AD.';
+    } else if (msg.includes('403') || msg.includes('Forbidden')) {
+      msg = '403 Forbidden — admin consent is missing. Ask your admin to click "Grant admin consent" in Azure AD → App registrations → Timesheet Portal → API permissions.';
+    } else if (msg.includes('404') || msg.includes('not found')) {
+      msg = '404 Not found — make sure the SharePoint lists (Employees, Timesheets, TimesheetEntries) exist in your site.';
+    }
+    showErr(msg);
+    showLoad(false);
+  }
+}
+
+async function loadPeriod() {
+  showLoad(true, 'Loading timesheet data...');
+  try {
+    const wo      = getWO();
+    const allDays = wo.flatMap(w => w.days);
+    const ws      = getMon(allDays[0]);
+    const we      = allDays[allDays.length-1];
+    statuses      = await loadStatuses(ws);
+    await loadEntries(ws, we);
+    render();
+  } catch(e) {
+    console.error('Load period error:', e);
+    showErr('Could not load data: ' + e.message);
+  } finally {
+    showLoad(false);
+  }
+}
+
+/* ================================================================
+   RENDER
+   ================================================================ */
+function render() {
+  const wo=getWO(),allDays=wo.flatMap(w=>w.days);
+  const mon=getMon(anchor),y=anchor.getFullYear(),m=anchor.getMonth();
+  document.getElementById('range-lbl').textContent=cView==='week'
+    ?MONTHS[mon.getMonth()]+' '+y+' · '+mon.getDate()+'–'+addD(mon,6).getDate()+' '+MS[mon.getMonth()]
+    :MONTHS[m]+' '+y;
+  const ms=myStatus();
+  const b=document.getElementById('my-badge');b.className='my-badge '+bCls(ms);b.textContent=bTxt(ms);
+  const sb=document.getElementById('submit-btn');
+  sb.textContent={Draft:'▶ Submit',Submitted:'⏳ Submitted',Approved:'✓ Approved',Rejected:'↺ Resubmit'}[ms]||'▶ Submit';
+  sb.disabled=ms==='Approved'||ms==='Submitted';
+  buildFrozen();buildTable(wo,allDays);updateSum(wo,allDays);
+}
+
+function buildFrozen(){
+  const mi=myIdx();
+  let h='<div class="fh-top"></div><div class="fh-mid"><span class="col-n">Employee name</span><span class="col-i">Emp ID</span></div><div class="fh-date"></div>';
+  emps.forEach((emp,ei)=>{const mine=ei===mi;h+='<div class="femp'+(mine?' mine':'')+'"><span class="femp-name" style="'+(mine?'color:#4f52a3;font-weight:700':'')+'">'+(mine?'▶ ':'')+emp.name+'</span><span class="femp-id">'+emp.id+'</span></div>';});
+  h+='<div class="ftotal"><span class="ftotal-lbl">Column total</span></div>';
+  document.getElementById('frozen-col').innerHTML=h;
+}
+
+function buildTable(wo,allDays){
+  const mi=myIdx();
+  let t='<table class="ts"><thead><tr>';
+  wo.forEach(w=>{t+='<th class="thw" colspan="'+(w.days.length+1)+'">'+w.label+' <span>'+w.range+'</span></th>';});
+  t+='<th class="thst" rowspan="3">Status</th></tr><tr>';
+  wo.forEach(w=>{w.days.forEach(d=>{t+='<th class="thd'+(isWE(d)?' we':'')+'">'+DL[d.getDay()]+'</th>';});t+='<th class="thwt">Wk total</th>';});
+  t+='</tr><tr>';
+  wo.forEach(w=>{w.days.forEach(d=>{const isT=sameD(d,TODAY);t+='<th class="thdt'+(isWE(d)?' we':'')+(isT?' tdh':'')+'">'+d.getDate()+'</th>';});t+='<th class="thwt"></th>';});
+  t+='</tr></thead><tbody>';
+  emps.forEach((emp,ei)=>{
+    const mine=ei===mi,st=getStatus(ei),locked=st==='Submitted'||st==='Approved';
+    t+='<tr>';
+    wo.forEach((w,wi)=>{
+      const wt=w.days.reduce((s,d)=>s+getH(ei,d),0);
+      w.days.forEach(d=>{
+        const h=getH(ei,d),iW=isWE(d),isT=sameD(d,TODAY);
+        t+='<td class="dc'+(iW?' we':'')+(isT?' tdc':'')+(mine?' mine':'')+'"><input type="number" min="0" max="24" step="1" value="'+(h||'')+'" '+((!mine||locked||iW)?'disabled':'')+(mine&&!locked&&!iW?' oninput="onInput('+ei+','+d.getTime()+',this)" onchange="onChanged('+ei+','+d.getTime()+',this)"':'')+'></td>';
+      });
+      t+='<td class="wt'+(mine?' mine':'')+'" id="wt-'+ei+'-'+wi+'">'+(wt||0)+'</td>';
+    });
+    t+='<td class="st">'+bHTML(st)+'</td></tr>';
+  });
+  t+='<tr>';
+  wo.forEach((w,wi)=>{
+    w.days.forEach(d=>{const ct=emps.reduce((s,_,ei)=>s+getH(ei,d),0);t+='<td class="ct'+(isWE(d)?' we':'')+'" id="ct-'+d.getTime()+'">'+(isWE(d)?'—':(ct||''))+'</td>';});
+    const cwt=emps.reduce((s,_,ei)=>s+w.days.reduce((r,d)=>r+getH(ei,d),0),0);
+    t+='<td class="cwt" id="cwt-'+wi+'">'+cwt+'</td>';
+  });
+  t+='<td class="ct"></td></tr></tbody></table>';
+  document.getElementById('data-scroll').innerHTML=t;
+}
+
+function onInput(ei,ts,inp){
+  const d=new Date(ts),v=Math.max(0,Math.min(24,parseFloat(inp.value)||0));
+  setHL(ei,d,v);
+  const wo=getWO();
+  const wi=wo.findIndex(w=>w.days.some(x=>sameD(x,d)));
+  if(wi>=0){const wt=wo[wi].days.reduce((s,x)=>s+getH(ei,x),0);const e=document.getElementById('wt-'+ei+'-'+wi);if(e)e.textContent=wt||0;const cwt=emps.reduce((s,_,i)=>s+wo[wi].days.reduce((r,x)=>r+getH(i,x),0),0);const ce=document.getElementById('cwt-'+wi);if(ce)ce.textContent=cwt;}
+  const ct=emps.reduce((s,_,i)=>s+getH(i,d),0);const cte=document.getElementById('ct-'+d.getTime());if(cte)cte.textContent=ct||'';
+  updateSum(wo,wo.flatMap(w=>w.days));
+}
+
+function onChanged(ei,ts,inp){
+  const d=new Date(ts),v=Math.max(0,Math.min(24,parseFloat(inp.value)||0));
+  setHL(ei,d,v);
+  const k=hk(ei,d);
+  if(timers[k])clearTimeout(timers[k]);
+  timers[k]=setTimeout(async()=>{
+    inp.style.background='#fff4ce';
+    try{await saveEntry(ei,d,v);inp.style.background='#dff6dd';setTimeout(()=>{inp.style.background='';},1400);}
+    catch(e){inp.style.background='#fde7e9';showToast('Could not save: '+e.message,'t-err');}
+    delete timers[k];
+  },800);
+}
+
+function updateSum(wo,allDays){
+  const mi=myIdx();
+  const mine=mi>=0?allDays.reduce((s,d)=>s+getH(mi,d),0):0;
+  const team=emps.reduce((s,_,ei)=>s+allDays.reduce((r,d)=>r+getH(ei,d),0),0);
+  const sub=emps.filter((_,ei)=>['Submitted','Approved'].includes(getStatus(ei))).length;
+  document.getElementById('s-mine').textContent=mine+' hrs';
+  document.getElementById('s-team').textContent=team+' hrs';
+  document.getElementById('s-status').innerHTML=bHTML(myStatus());
+  document.getElementById('s-ratio').textContent=sub+' / '+emps.length;
+}
+
+function openSubmit(){
+  const wo=getWO(),allDays=wo.flatMap(w=>w.days),mi=myIdx();
+  const mine=mi>=0?allDays.reduce((s,d)=>s+getH(mi,d),0):0;
+  const ms=myStatus(),isR=ms==='Rejected';
+  document.getElementById('modal-title').textContent=isR?'Resubmit timesheet?':'Submit your timesheet';
+  document.getElementById('modal-sub').textContent=isR?'Your timesheet was rejected. Ready to resubmit to HR?':'Submit to HR for approval. HR will receive an email notification.';
+  document.getElementById('modal-det').innerHTML='<div class="mdr"><span class="mdr-l">Employee</span><span class="mdr-v">'+me.name+'</span></div><div class="mdr"><span class="mdr-l">Period</span><span class="mdr-v">'+document.getElementById('range-lbl').textContent+'</span></div><div class="mdr"><span class="mdr-l">Total hours</span><span class="mdr-v" style="color:#4f52a3">'+mine+' hrs</span></div>';
+  document.getElementById('modal-btns').innerHTML='<button class="mbtn mbtn-cancel" onclick="closeModal()">Cancel</button><button class="mbtn mbtn-ok" onclick="doSubmit('+mine+')">'+(isR?'↺ Resubmit to HR':'▶ Submit to HR')+'</button>';
+  document.getElementById('modal-bg').classList.add('show');
+}
+
+async function doSubmit(totalHours){
+  closeModal();showLoad(true,'Submitting...');
+  try{await submitTS(getMon(anchor),totalHours);showToast('Submitted! HR has been notified.','t-ok');render();}
+  catch(e){showToast('Could not submit: '+e.message,'t-err');}
+  finally{showLoad(false);}
+}
+
+function closeModal(){document.getElementById('modal-bg').classList.remove('show');}
+document.getElementById('modal-bg').addEventListener('click',function(e){if(e.target===this)closeModal();});
+function showToast(msg,cls='t-ok'){const t=document.getElementById('toast');t.textContent=msg;t.className='toast '+cls+' show';setTimeout(()=>t.classList.remove('show'),4000);}
+function showLoad(show,msg){document.getElementById('loader').classList.toggle('hidden',!show);if(msg)setMsg(msg);}
+function setMsg(m){document.getElementById('loader-msg').textContent=m;}
+function showErr(msg){document.getElementById('err-msg').textContent=msg;document.getElementById('err-banner').classList.add('show');}
+
+// Start the app
+// Wait for MSAL to be available before starting the app
+function startWhenReady(attempts) {
+  attempts = attempts || 0;
+  if (typeof msal !== 'undefined') {
+    console.log('[App] MSAL ready, initializing...');
+    // NOW safe to use msal.* — initialize config and app here
+    msalConfig = {
+      auth: {
+        clientId:    CLIENT_ID,
+        authority:   'https://login.microsoftonline.com/' + TENANT_ID,
+        redirectUri: REDIRECT_URI
+      },
+      cache: {
+        cacheLocation: 'sessionStorage',
+        storeAuthStateInCookie: false
+      }
+    };
+    msalApp = new msal.PublicClientApplication(msalConfig);
+    console.log('[App] msalApp created, starting init...');
+    init();
+    return;
+  }
+  if (attempts > 50) { // 5 seconds max wait
+    console.error('[App] MSAL failed to load after 5 seconds');
+    var msg = 'Microsoft Authentication Library failed to load. ' +
+      'Please check your internet connection and refresh the page.';
+    var errEl = document.getElementById('err-msg');
+    var loaderEl = document.getElementById('loader');
+    var bannerEl = document.getElementById('err-banner');
+    if (errEl) errEl.textContent = msg;
+    if (loaderEl) loaderEl.classList.add('hidden');
+    if (bannerEl) bannerEl.classList.add('show');
+    return;
+  }
+  setTimeout(function() { startWhenReady(attempts + 1); }, 100);
+}
+
+window.addEventListener('load', function() {
+  console.log('[App] Page loaded, waiting for MSAL...');
+  startWhenReady(0);
+});
+</script>
+</body>
+</html>
